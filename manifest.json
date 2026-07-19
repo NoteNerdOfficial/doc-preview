@@ -1,8 +1,8 @@
 {
   "id": "doc-preview",
   "name": "Doc Preview",
-  "version": "1.0.2",
-  "minAppVersion": "1.13.0",
+  "version": "1.0.3",
+  "minAppVersion": "1.7.2",
   "description": "Preview PowerPoint and Word documents. Automatically refreshes when you, Claude, or another AI agent changes the file, so your preview is always up to date. Renders via a local LibreOffice install (bring your own, or install one from Settings).",
   "author": "notenerd",
   "authorUrl": "",

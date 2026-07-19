@@ -339,23 +339,20 @@ var DocPreviewSettingTab = class extends import_obsidian.PluginSettingTab {
     super(app, plugin);
     this.plugin = plugin;
   }
-  // Everything below uses render-type definitions rather than the native
-  // control/action shapes: the folder picker needs a text field + custom
-  // Electron dialog button in the same row, and the status/install rows need
-  // to recompute their own text on each render — neither fits the
-  // declarative control schema cleanly, and `render` is the documented
-  // escape hatch for exactly this (it still gets name/desc search indexing
-  // from the definition object, which is the actual thing this migration
-  // is for).
+  /**
+   * getSettingDefinitions() only exists from Obsidian 1.13.0 (Catalyst
+   * early-access as of this writing — not yet on general release, where the
+   * latest stable is 1.12.7). display() is kept as a real, fully-working
+   * fallback for that mainstream case, not a token stub — both paths call
+   * the exact same render* helpers below, so there's one implementation of
+   * the actual settings, just two ways of mounting it depending on which
+   * API the running Obsidian version actually has.
+   */
   getSettingDefinitions() {
     return [
       {
         name: "LibreOffice",
-        render: (setting) => {
-          setting.setHeading().setDesc(
-            "Previews are rendered locally via LibreOffice, run headless (no window ever opens). If you already have LibreOffice installed, it'll be detected automatically below. Otherwise you can install a copy to a folder of your choosing \u2014 it does not have to go into Applications / Program Files."
-          );
-        }
+        render: (setting) => this.renderHeading(setting)
       },
       {
         name: "Detected installation",
@@ -369,13 +366,37 @@ var DocPreviewSettingTab = class extends import_obsidian.PluginSettingTab {
       {
         name: "Install LibreOffice",
         desc: "Downloads the official build from documentfoundation.org and installs it into the folder above. Large download (several hundred MB) \u2014 this can take a few minutes.",
-        render: (setting) => {
-          setting.addButton(
-            (btn) => btn.setCta().setButtonText("Install").onClick(() => this.runInstall(btn))
-          );
-        }
+        render: (setting) => this.renderInstallButton(setting)
       }
     ];
+  }
+  /** Fallback for Obsidian < 1.13.0 — i.e. still the mainstream case. Not
+   *  called at all on 1.13.0+ (Obsidian renders from getSettingDefinitions
+   *  instead whenever that returns a non-empty array). */
+  display() {
+    const { containerEl } = this;
+    containerEl.empty();
+    this.renderHeading(new import_obsidian.Setting(containerEl));
+    this.renderStatus(new import_obsidian.Setting(containerEl));
+    this.renderInstallLocation(new import_obsidian.Setting(containerEl));
+    this.renderInstallButton(new import_obsidian.Setting(containerEl));
+  }
+  /** Re-renders whichever of getSettingDefinitions/display is actually
+   *  active. `update` only exists on 1.13.0+; calling the wrong one risks
+   *  fighting the declarative renderer's own bookkeeping on newer Obsidian,
+   *  or crashing outright on older Obsidian where update() doesn't exist —
+   *  requireApiVersion is the sanctioned guard for exactly this. */
+  refresh() {
+    if ((0, import_obsidian.requireApiVersion)("1.13.0")) {
+      this.update();
+    } else {
+      this.display();
+    }
+  }
+  renderHeading(setting) {
+    setting.setHeading().setName("LibreOffice").setDesc(
+      "Previews are rendered locally via LibreOffice, run headless (no window ever opens). If you already have LibreOffice installed, it'll be detected automatically below. Otherwise you can install a copy to a folder of your choosing \u2014 it does not have to go into Applications / Program Files."
+    );
   }
   renderStatus(setting) {
     var _a2;
@@ -389,7 +410,7 @@ var DocPreviewSettingTab = class extends import_obsidian.PluginSettingTab {
       setting.setDesc("Not found in the configured folder or default system locations.");
     }
     setting.addExtraButton(
-      (btn) => btn.setIcon("refresh-cw").setTooltip("Re-check").onClick(() => this.update())
+      (btn) => btn.setIcon("refresh-cw").setTooltip("Re-check").onClick(() => this.refresh())
     );
   }
   renderInstallLocation(setting) {
@@ -405,11 +426,18 @@ var DocPreviewSettingTab = class extends import_obsidian.PluginSettingTab {
         if (chosen) {
           this.plugin.settings.customInstallDir = chosen;
           await this.plugin.saveSettings();
-          this.update();
+          this.refresh();
         } else {
           new import_obsidian.Notice("Couldn't open a folder picker on this system \u2014 type the path manually instead.");
         }
       })
+    );
+  }
+  renderInstallButton(setting) {
+    setting.setName("Install LibreOffice").setDesc(
+      "Downloads the official build from documentfoundation.org and installs it into the folder above. Large download (several hundred MB) \u2014 this can take a few minutes."
+    ).addButton(
+      (btn) => btn.setCta().setButtonText("Install").onClick(() => this.runInstall(btn))
     );
   }
   async runInstall(btn) {
@@ -428,7 +456,7 @@ var DocPreviewSettingTab = class extends import_obsidian.PluginSettingTab {
         }
       });
       new import_obsidian.Notice("LibreOffice installed successfully.");
-      this.update();
+      this.refresh();
     } catch (e) {
       console.error("Doc Preview: LibreOffice install failed", e);
       new import_obsidian.Notice(`Install failed: ${e instanceof Error ? e.message : String(e)}`);
