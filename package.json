@@ -1,7 +1,7 @@
 {
   "name": "doc-preview",
   "version": "1.0.0",
-  "description": "Preview PowerPoint and Word documents inside Obsidian. Automatically refreshes when you, Claude, or another AI agent makes changes to the file, so your preview is always up to date. Renders via a local LibreOffice install.",
+  "description": "Preview PowerPoint and Word documents. Automatically refreshes when you, Claude, or another AI agent changes the file, so your preview is always up to date. Renders via a local LibreOffice install.",
   "main": "main.js",
   "scripts": {
     "dev": "node esbuild.config.mjs",
@@ -12,7 +12,6 @@
   "author": "notenerd",
   "license": "MIT",
   "devDependencies": {
-    "@types/node": "^16.11.6",
     "esbuild": "^0.17.19",
     "eslint": "^9.30.1",
     "eslint-plugin-obsidianmd": "^0.4.1",
@@ -22,6 +21,7 @@
     "typescript-eslint": "^8.35.1"
   },
   "dependencies": {
+    "@types/node": "^16.11.6",
     "pdfjs-dist": "^4.8.69"
   }
 }
