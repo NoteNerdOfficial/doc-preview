@@ -151,6 +151,16 @@
   user-select: none;
 }
 
+/* Doesn't scroll — exists purely so the page indicator has a positioning
+   ancestor that stays fixed regardless of how much canvas-wrap scrolls
+   internally (zoom/pan). See the constructor comment for why. */
+.pdfviewer-canvas-outer {
+  position: relative;
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+}
+
 .pdfviewer-canvas-wrap {
   flex: 1 1 auto;
   overflow: auto;
@@ -161,7 +171,6 @@
      for the overflowing portion instead, so panning can always reach it. */
   align-items: safe center;
   justify-content: safe center;
-  position: relative;
   background: var(--background-secondary);
   outline: none;
 }

@@ -67,6 +67,7 @@ export class PdfViewer {
   private root: HTMLElement;
   private thumbRail: HTMLElement;
   private mainCol: HTMLElement;
+  private canvasOuter: HTMLElement;
   private canvasWrap: HTMLElement;
   private pageContainer: HTMLElement;
   private canvas: HTMLCanvasElement;
@@ -104,7 +105,14 @@ export class PdfViewer {
 
     this.buildToolbar(this.mainCol);
 
-    this.canvasWrap = this.mainCol.createDiv({ cls: "pdfviewer-canvas-wrap" });
+    // canvasOuter doesn't scroll — it exists so the indicator has a
+    // positioning ancestor that stays put regardless of how much canvasWrap
+    // scrolls internally. The indicator being a child of canvasWrap itself
+    // was the bug: absolutely-positioned children of a scrolling container
+    // still scroll along with everything else inside it, so it was drifting
+    // with the content on every zoom/pan instead of staying fixed in place.
+    this.canvasOuter = this.mainCol.createDiv({ cls: "pdfviewer-canvas-outer" });
+    this.canvasWrap = this.canvasOuter.createDiv({ cls: "pdfviewer-canvas-wrap" });
     this.canvasWrap.tabIndex = 0;
     // pageContainer shrink-wraps to the canvas's exact rendered size (not the
     // full flex-centered wrap), so the absolutely-positioned text layer
@@ -112,7 +120,7 @@ export class PdfViewer {
     this.pageContainer = this.canvasWrap.createDiv({ cls: "pdfviewer-page" });
     this.canvas = this.pageContainer.createEl("canvas", { cls: "pdfviewer-canvas" });
     this.textLayerDiv = this.pageContainer.createDiv({ cls: "textLayer pdfviewer-text-layer" });
-    this.indicator = this.canvasWrap.createDiv({ cls: "pdfviewer-page-indicator" });
+    this.indicator = this.canvasOuter.createDiv({ cls: "pdfviewer-page-indicator" });
 
     this.canvasWrap.addEventListener("keydown", (e) => this.onKeydown(e));
     this.canvasWrap.addEventListener("keyup", (e) => this.onKeyup(e));

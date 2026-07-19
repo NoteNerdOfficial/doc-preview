@@ -22732,12 +22732,13 @@ var PdfViewer = class {
     this.thumbRail = this.root.createDiv({ cls: "pdfviewer-thumbrail" });
     this.mainCol = this.root.createDiv({ cls: "pdfviewer-main" });
     this.buildToolbar(this.mainCol);
-    this.canvasWrap = this.mainCol.createDiv({ cls: "pdfviewer-canvas-wrap" });
+    this.canvasOuter = this.mainCol.createDiv({ cls: "pdfviewer-canvas-outer" });
+    this.canvasWrap = this.canvasOuter.createDiv({ cls: "pdfviewer-canvas-wrap" });
     this.canvasWrap.tabIndex = 0;
     this.pageContainer = this.canvasWrap.createDiv({ cls: "pdfviewer-page" });
     this.canvas = this.pageContainer.createEl("canvas", { cls: "pdfviewer-canvas" });
     this.textLayerDiv = this.pageContainer.createDiv({ cls: "textLayer pdfviewer-text-layer" });
-    this.indicator = this.canvasWrap.createDiv({ cls: "pdfviewer-page-indicator" });
+    this.indicator = this.canvasOuter.createDiv({ cls: "pdfviewer-page-indicator" });
     this.canvasWrap.addEventListener("keydown", (e) => this.onKeydown(e));
     this.canvasWrap.addEventListener("keyup", (e) => this.onKeyup(e));
     this.canvasWrap.addEventListener("mousemove", () => this.showIndicator());
