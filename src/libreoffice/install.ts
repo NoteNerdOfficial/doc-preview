@@ -3,8 +3,19 @@ import * as fs from "fs";
 import * as https from "https";
 import * as os from "os";
 import * as path from "path";
+import { HttpsProxyAgent } from "https-proxy-agent";
 
 const STABLE_INDEX_URL = "https://download.documentfoundation.org/libreoffice/stable/";
+
+// Node's https module doesn't read HTTP_PROXY/HTTPS_PROXY the way browsers or
+// curl do — on a locked-down work machine where a corporate proxy mediates
+// all internet access, a plain https.get() fails outright even though the
+// network is otherwise fine. Respect the standard env vars other CLI tools
+// already use, rather than requiring a plugin-specific proxy setting.
+function getProxyAgent(): HttpsProxyAgent<string> | undefined {
+  const proxyUrl = process.env.HTTPS_PROXY ?? process.env.https_proxy ?? process.env.HTTP_PROXY ?? process.env.http_proxy;
+  return proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
+}
 
 export interface InstallProgress {
   phase: "resolving" | "downloading" | "installing" | "done";
@@ -37,7 +48,7 @@ function compareVersions(a: string, b: string): number {
 function httpGetText(url: string): Promise<string> {
   return new Promise((resolve, reject) => {
     https
-      .get(url, (res) => {
+      .get(url, { agent: getProxyAgent() }, (res) => {
         if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           resolve(httpGetText(res.headers.location));
           return;
@@ -56,7 +67,7 @@ function httpGetText(url: string): Promise<string> {
 
 function downloadFile(url: string, destPath: string, onProgress?: ProgressCallback): Promise<void> {
   return new Promise((resolve, reject) => {
-    const request = https.get(url, (res) => {
+    const request = https.get(url, { agent: getProxyAgent() }, (res) => {
       if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         downloadFile(res.headers.location, destPath, onProgress).then(resolve, reject);
         return;
