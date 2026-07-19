@@ -1175,7 +1175,15 @@ function downloadFile(url, destPath, onProgress) {
   });
 }
 function macArch() {
-  return os2.arch() === "arm64" ? "aarch64" : "x86_64";
+  if (os2.arch() === "arm64")
+    return "aarch64";
+  try {
+    const isAppleSilicon = (0, import_child_process2.execFileSync)("sysctl", ["-n", "hw.optional.arm64"], { timeout: 5e3 }).toString().trim();
+    if (isAppleSilicon === "1")
+      return "aarch64";
+  } catch (e) {
+  }
+  return "x86_64";
 }
 async function installLibreOffice(installDir, onProgress) {
   onProgress == null ? void 0 : onProgress({ phase: "resolving", message: "Checking latest LibreOffice version\u2026" });
@@ -1190,7 +1198,8 @@ async function installLibreOffice(installDir, onProgress) {
 }
 async function installMac(version2, installDir, onProgress) {
   const arch2 = macArch();
-  const fileName = `LibreOffice_${version2}_MacOS_${arch2}.dmg`;
+  const archInFileName = arch2 === "x86_64" ? "x86-64" : arch2;
+  const fileName = `LibreOffice_${version2}_MacOS_${archInFileName}.dmg`;
   const url = `https://download.documentfoundation.org/libreoffice/stable/${version2}/mac/${arch2}/${fileName}`;
   const dmgPath = path2.join(os2.tmpdir(), fileName);
   await downloadFile(url, dmgPath, onProgress);

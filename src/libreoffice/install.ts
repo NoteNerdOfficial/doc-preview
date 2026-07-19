@@ -94,8 +94,24 @@ function downloadFile(url: string, destPath: string, onProgress?: ProgressCallba
   });
 }
 
+/**
+ * True hardware architecture, not the running process's — os.arch() alone
+ * reports "x64" for an x64 process even on genuine Apple Silicon hardware
+ * running under Rosetta translation (e.g. an Intel-only Electron/Obsidian
+ * build), which would fetch the correct-but-non-native Intel build instead
+ * of the native one. hw.optional.arm64 is a hardware-level sysctl flag
+ * that reflects the true CPU regardless of the calling process's own
+ * translation state.
+ */
 function macArch(): "aarch64" | "x86_64" {
-  return os.arch() === "arm64" ? "aarch64" : "x86_64";
+  if (os.arch() === "arm64") return "aarch64";
+  try {
+    const isAppleSilicon = execFileSync("sysctl", ["-n", "hw.optional.arm64"], { timeout: 5000 }).toString().trim();
+    if (isAppleSilicon === "1") return "aarch64";
+  } catch {
+    // sysctl OID doesn't exist on genuine Intel hardware — falls through to x86_64 below, correctly.
+  }
+  return "x86_64";
 }
 
 /**
@@ -127,7 +143,12 @@ export async function installLibreOffice(installDir: string, onProgress?: Progre
 
 async function installMac(version: string, installDir: string, onProgress?: ProgressCallback): Promise<string> {
   const arch = macArch();
-  const fileName = `LibreOffice_${version}_MacOS_${arch}.dmg`;
+  // The directory segment uses an underscore ("mac/x86_64/") but the x86_64
+  // filename itself uses a hyphen ("..._x86-64.dmg") — confirmed against the
+  // real server listing, not assumed. aarch64 has no such split since the
+  // word itself has no ambiguous separator.
+  const archInFileName = arch === "x86_64" ? "x86-64" : arch;
+  const fileName = `LibreOffice_${version}_MacOS_${archInFileName}.dmg`;
   const url = `https://download.documentfoundation.org/libreoffice/stable/${version}/mac/${arch}/${fileName}`;
   const dmgPath = path.join(os.tmpdir(), fileName);
 
