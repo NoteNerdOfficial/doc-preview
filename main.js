@@ -22717,6 +22717,17 @@ var PdfViewer = class {
      *  detect which page changed on the next load() and jump there. Null
      *  until a document has been loaded once. */
     this.pageSignatures = null;
+    // Space+drag panning (the Figma/Photoshop "hand tool" convention) — a
+    // distinct modifier so it never conflicts with the plain click-drag a user
+    // expects for text selection. mousemove/mouseup are on window, not
+    // canvasWrap, since a drag can move the pointer outside its bounds; those
+    // need explicit removal in destroy(), unlike DOM-scoped listeners that go
+    // away with the element.
+    this.isSpaceHeld = false;
+    this.isPanning = false;
+    this.panStart = { x: 0, y: 0, scrollLeft: 0, scrollTop: 0 };
+    this.boundOnMouseMove = (e) => this.onMouseMove(e);
+    this.boundOnMouseUp = () => this.onMouseUp();
     this.root = container.createDiv({ cls: "pdfviewer-root" });
     this.thumbRail = this.root.createDiv({ cls: "pdfviewer-thumbrail" });
     this.mainCol = this.root.createDiv({ cls: "pdfviewer-main" });
@@ -22728,7 +22739,11 @@ var PdfViewer = class {
     this.textLayerDiv = this.pageContainer.createDiv({ cls: "textLayer pdfviewer-text-layer" });
     this.indicator = this.canvasWrap.createDiv({ cls: "pdfviewer-page-indicator" });
     this.canvasWrap.addEventListener("keydown", (e) => this.onKeydown(e));
+    this.canvasWrap.addEventListener("keyup", (e) => this.onKeyup(e));
     this.canvasWrap.addEventListener("mousemove", () => this.showIndicator());
+    this.canvasWrap.addEventListener("mousedown", (e) => this.onMouseDown(e));
+    window.addEventListener("mousemove", this.boundOnMouseMove);
+    window.addEventListener("mouseup", this.boundOnMouseUp);
     this.canvasWrap.addEventListener("wheel", (e) => this.onWheel(e), { passive: false });
     this.resizeObserver = new ResizeObserver(() => {
       if (this.fitToPage)
@@ -22799,6 +22814,8 @@ var PdfViewer = class {
     (_a2 = this.activeRenderTask) == null ? void 0 : _a2.cancel();
     (_b = this.activeTextLayer) == null ? void 0 : _b.cancel();
     this.stopIndicatorTimer();
+    window.removeEventListener("mousemove", this.boundOnMouseMove);
+    window.removeEventListener("mouseup", this.boundOnMouseUp);
     void ((_c = this.doc) == null ? void 0 : _c.destroy());
     this.root.remove();
   }
@@ -22840,6 +22857,16 @@ var PdfViewer = class {
     } else if (e.key === "ArrowLeft" || e.key === "PageUp") {
       this.goToPage(this.currentPage - 1);
       e.preventDefault();
+    } else if (e.code === "Space" && !this.isSpaceHeld) {
+      this.isSpaceHeld = true;
+      this.canvasWrap.addClass("is-pan-ready");
+      e.preventDefault();
+    }
+  }
+  onKeyup(e) {
+    if (e.code === "Space") {
+      this.isSpaceHeld = false;
+      this.canvasWrap.removeClass("is-pan-ready");
     }
   }
   onWheel(e) {
@@ -22851,6 +22878,31 @@ var PdfViewer = class {
       void this.renderCurrentPage();
     }
     this.showIndicator();
+  }
+  /** Space+drag panning (Figma/Photoshop's "hand tool" convention) — a
+   *  distinct modifier from plain click-drag, which is reserved for text
+   *  selection. Also the reliable path regardless of whether native
+   *  scrolling of centered-and-overflowing flex content behaves correctly,
+   *  which has historically been inconsistent across browser engines. */
+  onMouseDown(e) {
+    if (!this.isSpaceHeld)
+      return;
+    this.isPanning = true;
+    this.panStart = { x: e.clientX, y: e.clientY, scrollLeft: this.canvasWrap.scrollLeft, scrollTop: this.canvasWrap.scrollTop };
+    this.canvasWrap.addClass("is-panning");
+    e.preventDefault();
+  }
+  onMouseMove(e) {
+    if (!this.isPanning)
+      return;
+    this.canvasWrap.scrollLeft = this.panStart.scrollLeft - (e.clientX - this.panStart.x);
+    this.canvasWrap.scrollTop = this.panStart.scrollTop - (e.clientY - this.panStart.y);
+  }
+  onMouseUp() {
+    if (!this.isPanning)
+      return;
+    this.isPanning = false;
+    this.canvasWrap.removeClass("is-panning");
   }
   goToPage(pageNum) {
     if (!this.doc || pageNum < 1 || pageNum > this.totalPages || pageNum === this.currentPage)

@@ -155,11 +155,23 @@
   flex: 1 1 auto;
   overflow: auto;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  /* safe center (not plain center): when zoomed content overflows past the
+     centering point, plain center can make that overflow unreachable by
+     scrolling in some browser engines — safe falls back to start-alignment
+     for the overflowing portion instead, so panning can always reach it. */
+  align-items: safe center;
+  justify-content: safe center;
   position: relative;
   background: var(--background-secondary);
   outline: none;
+}
+
+.pdfviewer-canvas-wrap.is-pan-ready {
+  cursor: grab;
+}
+
+.pdfviewer-canvas-wrap.is-panning {
+  cursor: grabbing;
 }
 
 .pdfviewer-page {

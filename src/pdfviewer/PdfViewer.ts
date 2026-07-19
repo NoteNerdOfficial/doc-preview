@@ -85,6 +85,18 @@ export class PdfViewer {
    *  until a document has been loaded once. */
   private pageSignatures: string[] | null = null;
 
+  // Space+drag panning (the Figma/Photoshop "hand tool" convention) — a
+  // distinct modifier so it never conflicts with the plain click-drag a user
+  // expects for text selection. mousemove/mouseup are on window, not
+  // canvasWrap, since a drag can move the pointer outside its bounds; those
+  // need explicit removal in destroy(), unlike DOM-scoped listeners that go
+  // away with the element.
+  private isSpaceHeld = false;
+  private isPanning = false;
+  private panStart = { x: 0, y: 0, scrollLeft: 0, scrollTop: 0 };
+  private readonly boundOnMouseMove = (e: MouseEvent) => this.onMouseMove(e);
+  private readonly boundOnMouseUp = () => this.onMouseUp();
+
   constructor(container: HTMLElement) {
     this.root = container.createDiv({ cls: "pdfviewer-root" });
     this.thumbRail = this.root.createDiv({ cls: "pdfviewer-thumbrail" });
@@ -103,7 +115,11 @@ export class PdfViewer {
     this.indicator = this.canvasWrap.createDiv({ cls: "pdfviewer-page-indicator" });
 
     this.canvasWrap.addEventListener("keydown", (e) => this.onKeydown(e));
+    this.canvasWrap.addEventListener("keyup", (e) => this.onKeyup(e));
     this.canvasWrap.addEventListener("mousemove", () => this.showIndicator());
+    this.canvasWrap.addEventListener("mousedown", (e) => this.onMouseDown(e));
+    window.addEventListener("mousemove", this.boundOnMouseMove);
+    window.addEventListener("mouseup", this.boundOnMouseUp);
     // Trackpad pinch-to-zoom (and ctrl+scroll-wheel on a mouse) arrives as a
     // wheel event with ctrlKey set — the standard convention Chromium/Safari/
     // Firefox all use to distinguish a zoom gesture from a plain scroll.
@@ -182,6 +198,8 @@ export class PdfViewer {
     this.activeRenderTask?.cancel();
     this.activeTextLayer?.cancel();
     this.stopIndicatorTimer();
+    window.removeEventListener("mousemove", this.boundOnMouseMove);
+    window.removeEventListener("mouseup", this.boundOnMouseUp);
     void this.doc?.destroy();
     this.root.remove();
   }
@@ -233,6 +251,17 @@ export class PdfViewer {
     } else if (e.key === "ArrowLeft" || e.key === "PageUp") {
       this.goToPage(this.currentPage - 1);
       e.preventDefault();
+    } else if (e.code === "Space" && !this.isSpaceHeld) {
+      this.isSpaceHeld = true;
+      this.canvasWrap.addClass("is-pan-ready");
+      e.preventDefault(); // stop Space from also scrolling/activating a focused button
+    }
+  }
+
+  private onKeyup(e: KeyboardEvent): void {
+    if (e.code === "Space") {
+      this.isSpaceHeld = false;
+      this.canvasWrap.removeClass("is-pan-ready");
     }
   }
 
@@ -248,6 +277,31 @@ export class PdfViewer {
       void this.renderCurrentPage();
     }
     this.showIndicator();
+  }
+
+  /** Space+drag panning (Figma/Photoshop's "hand tool" convention) — a
+   *  distinct modifier from plain click-drag, which is reserved for text
+   *  selection. Also the reliable path regardless of whether native
+   *  scrolling of centered-and-overflowing flex content behaves correctly,
+   *  which has historically been inconsistent across browser engines. */
+  private onMouseDown(e: MouseEvent): void {
+    if (!this.isSpaceHeld) return;
+    this.isPanning = true;
+    this.panStart = { x: e.clientX, y: e.clientY, scrollLeft: this.canvasWrap.scrollLeft, scrollTop: this.canvasWrap.scrollTop };
+    this.canvasWrap.addClass("is-panning");
+    e.preventDefault(); // stop native text-selection drag from starting underneath the pan
+  }
+
+  private onMouseMove(e: MouseEvent): void {
+    if (!this.isPanning) return;
+    this.canvasWrap.scrollLeft = this.panStart.scrollLeft - (e.clientX - this.panStart.x);
+    this.canvasWrap.scrollTop = this.panStart.scrollTop - (e.clientY - this.panStart.y);
+  }
+
+  private onMouseUp(): void {
+    if (!this.isPanning) return;
+    this.isPanning = false;
+    this.canvasWrap.removeClass("is-panning");
   }
 
   private goToPage(pageNum: number): void {
