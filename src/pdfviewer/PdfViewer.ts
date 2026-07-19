@@ -1,5 +1,5 @@
 import * as pdfjsLib from "pdfjs-dist";
-import type { PDFDocumentProxy, PDFPageProxy, RenderTask } from "pdfjs-dist";
+import type { PDFDocumentProxy, PDFPageProxy, PageViewport, RenderTask, TextLayer } from "pdfjs-dist";
 import { setIcon } from "obsidian";
 import * as fs from "fs";
 
@@ -68,7 +68,10 @@ export class PdfViewer {
   private thumbRail: HTMLElement;
   private mainCol: HTMLElement;
   private canvasWrap: HTMLElement;
+  private pageContainer: HTMLElement;
   private canvas: HTMLCanvasElement;
+  private textLayerDiv: HTMLElement;
+  private activeTextLayer: TextLayer | null = null;
   private indicator: HTMLElement;
   private zoomLabel: HTMLElement;
   private thumbnailsBuilt = false;
@@ -91,12 +94,21 @@ export class PdfViewer {
 
     this.canvasWrap = this.mainCol.createDiv({ cls: "pdfviewer-canvas-wrap" });
     this.canvasWrap.tabIndex = 0;
-    this.canvas = this.canvasWrap.createEl("canvas", { cls: "pdfviewer-canvas" });
+    // pageContainer shrink-wraps to the canvas's exact rendered size (not the
+    // full flex-centered wrap), so the absolutely-positioned text layer
+    // aligns pixel-for-pixel with the canvas regardless of centering.
+    this.pageContainer = this.canvasWrap.createDiv({ cls: "pdfviewer-page" });
+    this.canvas = this.pageContainer.createEl("canvas", { cls: "pdfviewer-canvas" });
+    this.textLayerDiv = this.pageContainer.createDiv({ cls: "textLayer pdfviewer-text-layer" });
     this.indicator = this.canvasWrap.createDiv({ cls: "pdfviewer-page-indicator" });
 
     this.canvasWrap.addEventListener("keydown", (e) => this.onKeydown(e));
     this.canvasWrap.addEventListener("mousemove", () => this.showIndicator());
-    this.canvasWrap.addEventListener("wheel", () => this.showIndicator(), { passive: true });
+    // Trackpad pinch-to-zoom (and ctrl+scroll-wheel on a mouse) arrives as a
+    // wheel event with ctrlKey set — the standard convention Chromium/Safari/
+    // Firefox all use to distinguish a zoom gesture from a plain scroll.
+    // Must be non-passive to preventDefault() the browser's own page-zoom.
+    this.canvasWrap.addEventListener("wheel", (e) => this.onWheel(e), { passive: false });
 
     this.resizeObserver = new ResizeObserver(() => {
       if (this.fitToPage) void this.renderCurrentPage();
@@ -168,6 +180,7 @@ export class PdfViewer {
   destroy(): void {
     this.resizeObserver.disconnect();
     this.activeRenderTask?.cancel();
+    this.activeTextLayer?.cancel();
     this.stopIndicatorTimer();
     void this.doc?.destroy();
     this.root.remove();
@@ -223,6 +236,20 @@ export class PdfViewer {
     }
   }
 
+  private onWheel(e: WheelEvent): void {
+    if (e.ctrlKey) {
+      // Pinch gesture magnitude varies a lot between trackpads — exp() gives
+      // smooth, proportional zoom (small pinch = small change) rather than a
+      // fixed step per event, which would feel jumpy for fine gestures.
+      e.preventDefault();
+      this.fitToPage = false;
+      const factor = Math.exp(-e.deltaY * 0.01);
+      this.scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, this.scale * factor));
+      void this.renderCurrentPage();
+    }
+    this.showIndicator();
+  }
+
   private goToPage(pageNum: number): void {
     if (!this.doc || pageNum < 1 || pageNum > this.totalPages || pageNum === this.currentPage) return;
     this.currentPage = pageNum;
@@ -257,7 +284,15 @@ export class PdfViewer {
     }
     if (token !== this.renderToken) return;
 
-    await this.paint(page, this.canvas, this.scale, this.rotation);
+    // Text layer shares this exact viewport (not a separately-computed one)
+    // so its span positions line up pixel-for-pixel with the canvas.
+    const viewport = page.getViewport({ scale: this.scale, rotation: this.rotation });
+    await this.paint(page, this.canvas, viewport);
+    if (token !== this.renderToken) return;
+
+    this.pageContainer.style.width = `${viewport.width}px`;
+    this.pageContainer.style.height = `${viewport.height}px`;
+    await this.renderTextLayer(page, viewport);
     if (token !== this.renderToken) return;
 
     this.zoomLabel.setText(`${Math.round(this.scale * 100)}%`);
@@ -274,9 +309,8 @@ export class PdfViewer {
     return Math.min(wrapWidth / unscaled.width, wrapHeight / unscaled.height);
   }
 
-  private async paint(page: PDFPageProxy, canvas: HTMLCanvasElement, scale: number, rotation: number): Promise<void> {
+  private async paint(page: PDFPageProxy, canvas: HTMLCanvasElement, viewport: PageViewport): Promise<void> {
     this.activeRenderTask?.cancel();
-    const viewport = page.getViewport({ scale, rotation });
     const dpr = window.devicePixelRatio || 1;
 
     canvas.width = Math.floor(viewport.width * dpr);
@@ -297,6 +331,29 @@ export class PdfViewer {
       if (!(e instanceof Error && e.name === "RenderingCancelledException")) throw e;
     } finally {
       if (this.activeRenderTask === task) this.activeRenderTask = null;
+    }
+  }
+
+  /** Invisible, precisely-positioned text overlaid on the canvas — makes the
+   *  rendered slide/page selectable and copyable even though what's actually
+   *  visible is just pixels on a <canvas>. Thumbnails intentionally don't
+   *  get one (selection there wouldn't mean anything at that size). */
+  private async renderTextLayer(page: PDFPageProxy, viewport: PageViewport): Promise<void> {
+    this.activeTextLayer?.cancel();
+    this.textLayerDiv.empty();
+
+    const textLayer = new pdfjsLib.TextLayer({
+      textContentSource: page.streamTextContent(),
+      container: this.textLayerDiv,
+      viewport,
+    });
+    this.activeTextLayer = textLayer;
+    try {
+      await textLayer.render();
+    } catch (e) {
+      console.warn("Doc Preview: text layer render failed (text selection unavailable for this page).", e);
+    } finally {
+      if (this.activeTextLayer === textLayer) this.activeTextLayer = null;
     }
   }
 
@@ -338,7 +395,7 @@ export class PdfViewer {
       const page = await this.doc.getPage(i);
       const unscaled = page.getViewport({ scale: 1 });
       const thumbScale = 120 / unscaled.width;
-      await this.paint(page, canvas, thumbScale, 0);
+      await this.paint(page, canvas, page.getViewport({ scale: thumbScale, rotation: 0 }));
     }
     this.updateActiveThumbnail();
   }

@@ -22694,6 +22694,7 @@ var PdfViewer = class {
     this.rotation = 0;
     this.renderToken = 0;
     this.activeRenderTask = null;
+    this.activeTextLayer = null;
     this.thumbnailsBuilt = false;
     this.thumbnailsVisible = false;
     this.indicatorHideTimer = null;
@@ -22708,11 +22709,13 @@ var PdfViewer = class {
     this.buildToolbar(this.mainCol);
     this.canvasWrap = this.mainCol.createDiv({ cls: "pdfviewer-canvas-wrap" });
     this.canvasWrap.tabIndex = 0;
-    this.canvas = this.canvasWrap.createEl("canvas", { cls: "pdfviewer-canvas" });
+    this.pageContainer = this.canvasWrap.createDiv({ cls: "pdfviewer-page" });
+    this.canvas = this.pageContainer.createEl("canvas", { cls: "pdfviewer-canvas" });
+    this.textLayerDiv = this.pageContainer.createDiv({ cls: "textLayer pdfviewer-text-layer" });
     this.indicator = this.canvasWrap.createDiv({ cls: "pdfviewer-page-indicator" });
     this.canvasWrap.addEventListener("keydown", (e) => this.onKeydown(e));
     this.canvasWrap.addEventListener("mousemove", () => this.showIndicator());
-    this.canvasWrap.addEventListener("wheel", () => this.showIndicator(), { passive: true });
+    this.canvasWrap.addEventListener("wheel", (e) => this.onWheel(e), { passive: false });
     this.resizeObserver = new ResizeObserver(() => {
       if (this.fitToPage)
         void this.renderCurrentPage();
@@ -22777,11 +22780,12 @@ var PdfViewer = class {
     return null;
   }
   destroy() {
-    var _a2, _b;
+    var _a2, _b, _c;
     this.resizeObserver.disconnect();
     (_a2 = this.activeRenderTask) == null ? void 0 : _a2.cancel();
+    (_b = this.activeTextLayer) == null ? void 0 : _b.cancel();
     this.stopIndicatorTimer();
-    void ((_b = this.doc) == null ? void 0 : _b.destroy());
+    void ((_c = this.doc) == null ? void 0 : _c.destroy());
     this.root.remove();
   }
   // ── Toolbar ────────────────────────────────────────────────────────────
@@ -22824,6 +22828,16 @@ var PdfViewer = class {
       e.preventDefault();
     }
   }
+  onWheel(e) {
+    if (e.ctrlKey) {
+      e.preventDefault();
+      this.fitToPage = false;
+      const factor = Math.exp(-e.deltaY * 0.01);
+      this.scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, this.scale * factor));
+      void this.renderCurrentPage();
+    }
+    this.showIndicator();
+  }
   goToPage(pageNum) {
     if (!this.doc || pageNum < 1 || pageNum > this.totalPages || pageNum === this.currentPage)
       return;
@@ -22854,7 +22868,13 @@ var PdfViewer = class {
     }
     if (token !== this.renderToken)
       return;
-    await this.paint(page, this.canvas, this.scale, this.rotation);
+    const viewport = page.getViewport({ scale: this.scale, rotation: this.rotation });
+    await this.paint(page, this.canvas, viewport);
+    if (token !== this.renderToken)
+      return;
+    this.pageContainer.style.width = `${viewport.width}px`;
+    this.pageContainer.style.height = `${viewport.height}px`;
+    await this.renderTextLayer(page, viewport);
     if (token !== this.renderToken)
       return;
     this.zoomLabel.setText(`${Math.round(this.scale * 100)}%`);
@@ -22870,10 +22890,9 @@ var PdfViewer = class {
       return 1;
     return Math.min(wrapWidth / unscaled.width, wrapHeight / unscaled.height);
   }
-  async paint(page, canvas, scale, rotation) {
+  async paint(page, canvas, viewport) {
     var _a2;
     (_a2 = this.activeRenderTask) == null ? void 0 : _a2.cancel();
-    const viewport = page.getViewport({ scale, rotation });
     const dpr = window.devicePixelRatio || 1;
     canvas.width = Math.floor(viewport.width * dpr);
     canvas.height = Math.floor(viewport.height * dpr);
@@ -22893,6 +22912,29 @@ var PdfViewer = class {
     } finally {
       if (this.activeRenderTask === task)
         this.activeRenderTask = null;
+    }
+  }
+  /** Invisible, precisely-positioned text overlaid on the canvas — makes the
+   *  rendered slide/page selectable and copyable even though what's actually
+   *  visible is just pixels on a <canvas>. Thumbnails intentionally don't
+   *  get one (selection there wouldn't mean anything at that size). */
+  async renderTextLayer(page, viewport) {
+    var _a2;
+    (_a2 = this.activeTextLayer) == null ? void 0 : _a2.cancel();
+    this.textLayerDiv.empty();
+    const textLayer = new __webpack_exports__TextLayer({
+      textContentSource: page.streamTextContent(),
+      container: this.textLayerDiv,
+      viewport
+    });
+    this.activeTextLayer = textLayer;
+    try {
+      await textLayer.render();
+    } catch (e) {
+      console.warn("Doc Preview: text layer render failed (text selection unavailable for this page).", e);
+    } finally {
+      if (this.activeTextLayer === textLayer)
+        this.activeTextLayer = null;
     }
   }
   // ── Page indicator (fades in/out) ───────────────────────────────────────
@@ -22929,7 +22971,7 @@ var PdfViewer = class {
       const page = await this.doc.getPage(i);
       const unscaled = page.getViewport({ scale: 1 });
       const thumbScale = 120 / unscaled.width;
-      await this.paint(page, canvas, thumbScale, 0);
+      await this.paint(page, canvas, page.getViewport({ scale: thumbScale, rotation: 0 }));
     }
     this.updateActiveThumbnail();
   }

@@ -162,9 +162,50 @@
   outline: none;
 }
 
+.pdfviewer-page {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+}
+
 .pdfviewer-canvas {
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
   background: #fff;
+  display: block;
+}
+
+/* Adapted from pdfjs-dist's own web/pdf_viewer.css — invisible, precisely
+   positioned text overlaid on the canvas so the rendered page is selectable
+   and copyable even though what's visibly drawn is just pixels. */
+.pdfviewer-text-layer {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+}
+
+.pdfviewer-text-layer :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+}
+
+.pdfviewer-text-layer ::selection {
+  background: rgba(0, 100, 255, 0.3);
+}
+
+.pdfviewer-text-layer .endOfContent {
+  display: block;
+  position: absolute;
+  inset: 100% 0 0;
+  cursor: default;
+  user-select: none;
 }
 
 .pdfviewer-page-indicator {
