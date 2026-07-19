@@ -186,6 +186,14 @@
   text-size-adjust: none;
   forced-color-adjust: none;
   transform-origin: 0 0;
+  /* Obsidian's own app-wide CSS sets user-select: none on view chrome by
+     default (standard Electron-app pattern to avoid accidental UI text
+     selection) — that inherits into our view unless explicitly overridden
+     here. cursor: text below still shows without this, since cursor styling
+     and selection are independent properties, which is exactly the "cursor
+     changes but nothing highlights" symptom this fixes. */
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .pdfviewer-text-layer :is(span, br) {
@@ -194,6 +202,8 @@
   white-space: pre;
   cursor: text;
   transform-origin: 0% 0%;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .pdfviewer-text-layer ::selection {

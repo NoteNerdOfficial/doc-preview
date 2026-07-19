@@ -174,12 +174,24 @@ export class DocPreviewSettingTab extends PluginSettingTab {
   }
 
   private renderInstallButton(setting: Setting): void {
+    const desc = createFragment();
+    desc.append(
+      "Downloads the official build from documentfoundation.org and installs it into the folder above. " +
+        "Large download (several hundred MB) — this can take a few minutes. Some networks (corporate " +
+        "proxies/firewalls) block this — if it fails, "
+    );
+    desc.createEl("a", {
+      text: "download LibreOffice yourself",
+      href: "https://www.libreoffice.org/download/download-libreoffice/",
+    });
+    desc.append(
+      " and install it normally. You don't need to fill in Install location above for that — " +
+        "a normal install to the default Applications/Program Files location is detected automatically."
+    );
+
     setting
       .setName("Install LibreOffice")
-      .setDesc(
-        "Downloads the official build from documentfoundation.org and installs it into the folder above. " +
-          "Large download (several hundred MB) — this can take a few minutes."
-      )
+      .setDesc(desc)
       .addButton((btn) =>
         btn
           .setCta()
@@ -208,7 +220,10 @@ export class DocPreviewSettingTab extends PluginSettingTab {
       this.refresh();
     } catch (e) {
       console.error("Doc Preview: LibreOffice install failed", e);
-      new Notice(`Install failed: ${e instanceof Error ? e.message : String(e)}`);
+      new Notice(
+        `Install failed: ${e instanceof Error ? e.message : String(e)}\n\nYou can also download LibreOffice yourself from libreoffice.org and install it normally — it'll be detected automatically.`,
+        10000
+      );
       btn.setButtonText("Install");
       btn.setDisabled(false);
     }

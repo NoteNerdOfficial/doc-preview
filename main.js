@@ -1407,9 +1407,18 @@ var DocPreviewSettingTab = class extends import_obsidian.PluginSettingTab {
     );
   }
   renderInstallButton(setting) {
-    setting.setName("Install LibreOffice").setDesc(
-      "Downloads the official build from documentfoundation.org and installs it into the folder above. Large download (several hundred MB) \u2014 this can take a few minutes."
-    ).addButton(
+    const desc = createFragment();
+    desc.append(
+      "Downloads the official build from documentfoundation.org and installs it into the folder above. Large download (several hundred MB) \u2014 this can take a few minutes. Some networks (corporate proxies/firewalls) block this \u2014 if it fails, "
+    );
+    desc.createEl("a", {
+      text: "download LibreOffice yourself",
+      href: "https://www.libreoffice.org/download/download-libreoffice/"
+    });
+    desc.append(
+      " and install it normally. You don't need to fill in Install location above for that \u2014 a normal install to the default Applications/Program Files location is detected automatically."
+    );
+    setting.setName("Install LibreOffice").setDesc(desc).addButton(
       (btn) => btn.setCta().setButtonText("Install").onClick(() => this.runInstall(btn))
     );
   }
@@ -1432,7 +1441,12 @@ var DocPreviewSettingTab = class extends import_obsidian.PluginSettingTab {
       this.refresh();
     } catch (e) {
       console.error("Doc Preview: LibreOffice install failed", e);
-      new import_obsidian.Notice(`Install failed: ${e instanceof Error ? e.message : String(e)}`);
+      new import_obsidian.Notice(
+        `Install failed: ${e instanceof Error ? e.message : String(e)}
+
+You can also download LibreOffice yourself from libreoffice.org and install it normally \u2014 it'll be detected automatically.`,
+        1e4
+      );
       btn.setButtonText("Install");
       btn.setDisabled(false);
     }
