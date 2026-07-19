@@ -3,12 +3,22 @@ import type { PDFDocumentProxy, PDFPageProxy, RenderTask } from "pdfjs-dist";
 import { setIcon } from "obsidian";
 import * as fs from "fs";
 
+// Injected at build time (esbuild.config.mjs) — the full source of
+// pdfjs-dist's worker script. Embedded rather than shipped as a separate
+// file: Obsidian's community-plugin installer only ever fetches
+// main.js/manifest.json/styles.css from a release, never a 4th asset, so a
+// standalone worker file 404s (net::ERR_FILE_NOT_FOUND) for anyone who
+// installs normally instead of symlinking a local build.
+declare const __PDF_WORKER_SOURCE__: string;
+
 let workerConfigured = false;
 
-/** Sets pdf.js's worker script location once per plugin lifetime. */
-export function configurePdfWorker(workerSrc: string): void {
+/** Sets pdf.js's worker script location once per plugin lifetime, via a
+ *  Blob URL built from the embedded source rather than a file path. */
+export function configurePdfWorker(): void {
   if (workerConfigured) return;
-  pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
+  const blob = new Blob([__PDF_WORKER_SOURCE__], { type: "text/javascript" });
+  pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(blob);
   workerConfigured = true;
 }
 

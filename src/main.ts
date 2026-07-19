@@ -1,4 +1,4 @@
-import { FileSystemAdapter, Notice, Plugin } from "obsidian";
+import { Notice, Plugin } from "obsidian";
 import { DocPreviewSettingTab } from "./settings";
 import { DEFAULT_SETTINGS, DocPreviewSettings } from "./types";
 import { DocPreviewView, VIEW_TYPE_DOC_PREVIEW } from "./views/DocPreviewView";
@@ -14,12 +14,9 @@ export default class DocPreviewPlugin extends Plugin {
     this.addSettingTab(new DocPreviewSettingTab(this.app, this));
 
     // Once per plugin lifetime — GlobalWorkerOptions is a pdf.js module-level
-    // singleton. The worker script is copied to the plugin root at build
-    // time (esbuild.config.mjs) and must be loaded via Obsidian's resource
-    // path, not a plain file:// URL (blocked by Chromium — see PdfViewer.ts).
-    const adapter = this.app.vault.adapter as FileSystemAdapter;
-    const workerRelativePath = `${this.app.vault.configDir}/plugins/${this.manifest.id}/pdf.worker.min.mjs`;
-    configurePdfWorker(adapter.getResourcePath(workerRelativePath));
+    // singleton. Built from an embedded source string (see PdfViewer.ts),
+    // not a separate file — Obsidian's installer never fetches a 4th asset.
+    configurePdfWorker();
 
     this.registerView(VIEW_TYPE_DOC_PREVIEW, (leaf) => new DocPreviewView(leaf, this));
 

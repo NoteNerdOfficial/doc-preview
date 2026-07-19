@@ -7,6 +7,3 @@ data.json
 # Runtime-generated PDF cache — physically lives here once symlinked into a
 # vault's .obsidian/plugins/, not source.
 preview-cache/
-
-# Copied from node_modules by esbuild.config.mjs on every build.
-pdf.worker.min.mjs
