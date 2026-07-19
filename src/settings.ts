@@ -1,4 +1,4 @@
-import { App, Notice, PluginSettingTab, Setting } from "obsidian";
+import { App, ButtonComponent, Notice, PluginSettingTab, Setting, SettingDefinitionItem } from "obsidian";
 import type DocPreviewPlugin from "./main";
 import { detectLibreOffice } from "./libreoffice/detect";
 import { installLibreOffice } from "./libreoffice/install";
@@ -52,23 +52,78 @@ export class DocPreviewSettingTab extends PluginSettingTab {
     this.plugin = plugin;
   }
 
-  display(): void {
-    const { containerEl } = this;
-    containerEl.empty();
+  // Everything below uses render-type definitions rather than the native
+  // control/action shapes: the folder picker needs a text field + custom
+  // Electron dialog button in the same row, and the status/install rows need
+  // to recompute their own text on each render — neither fits the
+  // declarative control schema cleanly, and `render` is the documented
+  // escape hatch for exactly this (it still gets name/desc search indexing
+  // from the definition object, which is the actual thing this migration
+  // is for).
+  getSettingDefinitions(): SettingDefinitionItem[] {
+    return [
+      {
+        name: "LibreOffice",
+        render: (setting) => {
+          setting
+            .setHeading()
+            .setDesc(
+              "Previews are rendered locally via LibreOffice, run headless (no window ever opens). " +
+                "If you already have LibreOffice installed, it'll be detected automatically below. " +
+                "Otherwise you can install a copy to a folder of your choosing — it does not have to go " +
+                "into Applications / Program Files."
+            );
+        },
+      },
+      {
+        name: "Detected installation",
+        render: (setting) => this.renderStatus(setting),
+      },
+      {
+        name: "Install location",
+        desc: "Where to install LibreOffice if you use the Install button below. You can pick any folder you have write access to.",
+        render: (setting) => this.renderInstallLocation(setting),
+      },
+      {
+        name: "Install LibreOffice",
+        desc:
+          "Downloads the official build from documentfoundation.org and installs it into the folder above. " +
+          "Large download (several hundred MB) — this can take a few minutes.",
+        render: (setting) => {
+          setting.addButton((btn) =>
+            btn
+              .setCta()
+              .setButtonText("Install")
+              .onClick(() => this.runInstall(btn))
+          );
+        },
+      },
+    ];
+  }
 
-    new Setting(containerEl).setName("LibreOffice").setHeading();
-    containerEl.createEl("p", {
-      text:
-        "Previews are rendered locally via LibreOffice, run headless (no window ever opens). " +
-        "If you already have LibreOffice installed, it'll be detected automatically below. " +
-        "Otherwise you can install a copy to a folder of your choosing — it does not have to go " +
-        "into Applications / Program Files.",
-      cls: "setting-item-description",
-    });
+  private renderStatus(setting: Setting): void {
+    const detection = detectLibreOffice(this.plugin.settings.customInstallDir || undefined);
 
-    this.renderStatus(containerEl);
+    setting.setName("Detected installation");
+    if (detection.found) {
+      setting.setDesc(
+        `${detection.version ?? "LibreOffice"} — ${detection.sofficePath} (${
+          detection.source === "custom" ? "your configured folder" : "default system location"
+        })`
+      );
+    } else {
+      setting.setDesc("Not found in the configured folder or default system locations.");
+    }
+    setting.addExtraButton((btn) =>
+      btn
+        .setIcon("refresh-cw")
+        .setTooltip("Re-check")
+        .onClick(() => this.update())
+    );
+  }
 
-    new Setting(containerEl)
+  private renderInstallLocation(setting: Setting): void {
+    setting
       .setName("Install location")
       .setDesc("Where to install LibreOffice if you use the Install button below. You can pick any folder you have write access to.")
       .addText((text) => {
@@ -87,49 +142,15 @@ export class DocPreviewSettingTab extends PluginSettingTab {
           if (chosen) {
             this.plugin.settings.customInstallDir = chosen;
             await this.plugin.saveSettings();
-            this.display();
+            this.update();
           } else {
             new Notice("Couldn't open a folder picker on this system — type the path manually instead.");
           }
         })
       );
-
-    new Setting(containerEl)
-      .setName("Install LibreOffice")
-      .setDesc(
-        "Downloads the official build from documentfoundation.org and installs it into the folder above. " +
-          "Large download (several hundred MB) — this can take a few minutes."
-      )
-      .addButton((btn) =>
-        btn
-          .setCta()
-          .setButtonText("Install")
-          .onClick(() => this.runInstall(btn))
-      );
   }
 
-  private renderStatus(containerEl: HTMLElement): void {
-    const detection = detectLibreOffice(this.plugin.settings.customInstallDir || undefined);
-
-    const status = new Setting(containerEl).setName("Detected installation");
-    if (detection.found) {
-      status.setDesc(
-        `${detection.version ?? "LibreOffice"} — ${detection.sofficePath} (${
-          detection.source === "custom" ? "your configured folder" : "default system location"
-        })`
-      );
-    } else {
-      status.setDesc("Not found in the configured folder or default system locations.");
-    }
-    status.addExtraButton((btn) =>
-      btn
-        .setIcon("refresh-cw")
-        .setTooltip("Re-check")
-        .onClick(() => this.display())
-    );
-  }
-
-  private async runInstall(btn: { setButtonText: (t: string) => unknown; setDisabled: (b: boolean) => unknown }): Promise<void> {
+  private async runInstall(btn: ButtonComponent): Promise<void> {
     const installDir = this.plugin.settings.customInstallDir || defaultSuggestedDir();
     if (!this.plugin.settings.customInstallDir) {
       this.plugin.settings.customInstallDir = installDir;
@@ -146,7 +167,7 @@ export class DocPreviewSettingTab extends PluginSettingTab {
         }
       });
       new Notice("LibreOffice installed successfully.");
-      this.display();
+      this.update();
     } catch (e) {
       console.error("Doc Preview: LibreOffice install failed", e);
       new Notice(`Install failed: ${e instanceof Error ? e.message : String(e)}`);

@@ -339,16 +339,61 @@ var DocPreviewSettingTab = class extends import_obsidian.PluginSettingTab {
     super(app, plugin);
     this.plugin = plugin;
   }
-  display() {
-    const { containerEl } = this;
-    containerEl.empty();
-    new import_obsidian.Setting(containerEl).setName("LibreOffice").setHeading();
-    containerEl.createEl("p", {
-      text: "Previews are rendered locally via LibreOffice, run headless (no window ever opens). If you already have LibreOffice installed, it'll be detected automatically below. Otherwise you can install a copy to a folder of your choosing \u2014 it does not have to go into Applications / Program Files.",
-      cls: "setting-item-description"
-    });
-    this.renderStatus(containerEl);
-    new import_obsidian.Setting(containerEl).setName("Install location").setDesc("Where to install LibreOffice if you use the Install button below. You can pick any folder you have write access to.").addText((text) => {
+  // Everything below uses render-type definitions rather than the native
+  // control/action shapes: the folder picker needs a text field + custom
+  // Electron dialog button in the same row, and the status/install rows need
+  // to recompute their own text on each render — neither fits the
+  // declarative control schema cleanly, and `render` is the documented
+  // escape hatch for exactly this (it still gets name/desc search indexing
+  // from the definition object, which is the actual thing this migration
+  // is for).
+  getSettingDefinitions() {
+    return [
+      {
+        name: "LibreOffice",
+        render: (setting) => {
+          setting.setHeading().setDesc(
+            "Previews are rendered locally via LibreOffice, run headless (no window ever opens). If you already have LibreOffice installed, it'll be detected automatically below. Otherwise you can install a copy to a folder of your choosing \u2014 it does not have to go into Applications / Program Files."
+          );
+        }
+      },
+      {
+        name: "Detected installation",
+        render: (setting) => this.renderStatus(setting)
+      },
+      {
+        name: "Install location",
+        desc: "Where to install LibreOffice if you use the Install button below. You can pick any folder you have write access to.",
+        render: (setting) => this.renderInstallLocation(setting)
+      },
+      {
+        name: "Install LibreOffice",
+        desc: "Downloads the official build from documentfoundation.org and installs it into the folder above. Large download (several hundred MB) \u2014 this can take a few minutes.",
+        render: (setting) => {
+          setting.addButton(
+            (btn) => btn.setCta().setButtonText("Install").onClick(() => this.runInstall(btn))
+          );
+        }
+      }
+    ];
+  }
+  renderStatus(setting) {
+    var _a2;
+    const detection = detectLibreOffice(this.plugin.settings.customInstallDir || void 0);
+    setting.setName("Detected installation");
+    if (detection.found) {
+      setting.setDesc(
+        `${(_a2 = detection.version) != null ? _a2 : "LibreOffice"} \u2014 ${detection.sofficePath} (${detection.source === "custom" ? "your configured folder" : "default system location"})`
+      );
+    } else {
+      setting.setDesc("Not found in the configured folder or default system locations.");
+    }
+    setting.addExtraButton(
+      (btn) => btn.setIcon("refresh-cw").setTooltip("Re-check").onClick(() => this.update())
+    );
+  }
+  renderInstallLocation(setting) {
+    setting.setName("Install location").setDesc("Where to install LibreOffice if you use the Install button below. You can pick any folder you have write access to.").addText((text) => {
       text.setPlaceholder(defaultSuggestedDir()).setValue(this.plugin.settings.customInstallDir).onChange(async (value) => {
         this.plugin.settings.customInstallDir = value.trim();
         await this.plugin.saveSettings();
@@ -360,31 +405,11 @@ var DocPreviewSettingTab = class extends import_obsidian.PluginSettingTab {
         if (chosen) {
           this.plugin.settings.customInstallDir = chosen;
           await this.plugin.saveSettings();
-          this.display();
+          this.update();
         } else {
           new import_obsidian.Notice("Couldn't open a folder picker on this system \u2014 type the path manually instead.");
         }
       })
-    );
-    new import_obsidian.Setting(containerEl).setName("Install LibreOffice").setDesc(
-      "Downloads the official build from documentfoundation.org and installs it into the folder above. Large download (several hundred MB) \u2014 this can take a few minutes."
-    ).addButton(
-      (btn) => btn.setCta().setButtonText("Install").onClick(() => this.runInstall(btn))
-    );
-  }
-  renderStatus(containerEl) {
-    var _a2;
-    const detection = detectLibreOffice(this.plugin.settings.customInstallDir || void 0);
-    const status = new import_obsidian.Setting(containerEl).setName("Detected installation");
-    if (detection.found) {
-      status.setDesc(
-        `${(_a2 = detection.version) != null ? _a2 : "LibreOffice"} \u2014 ${detection.sofficePath} (${detection.source === "custom" ? "your configured folder" : "default system location"})`
-      );
-    } else {
-      status.setDesc("Not found in the configured folder or default system locations.");
-    }
-    status.addExtraButton(
-      (btn) => btn.setIcon("refresh-cw").setTooltip("Re-check").onClick(() => this.display())
     );
   }
   async runInstall(btn) {
@@ -403,7 +428,7 @@ var DocPreviewSettingTab = class extends import_obsidian.PluginSettingTab {
         }
       });
       new import_obsidian.Notice("LibreOffice installed successfully.");
-      this.display();
+      this.update();
     } catch (e) {
       console.error("Doc Preview: LibreOffice install failed", e);
       new import_obsidian.Notice(`Install failed: ${e instanceof Error ? e.message : String(e)}`);
