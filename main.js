@@ -1499,12 +1499,19 @@ async function convertToPdf(sofficePath, inputPath, cacheDir, kind) {
   }
   return outputPath;
 }
+var CONVERT_TO_TARGET = {
+  word: "pdf",
+  powerpoint: "pdf",
+  excel: 'pdf:calc_pdf_Export:{"SinglePageSheets":{"type":"boolean","value":"true"}}'
+};
 function runSoffice(sofficePath, inputPath, outDir, kind) {
   return new Promise((resolve, reject) => {
     var _a2, _b;
-    const child = (0, import_child_process3.spawn)(sofficePath, ["--headless", "--convert-to", "pdf", "--outdir", outDir, inputPath], {
-      windowsHide: true
-    });
+    const child = (0, import_child_process3.spawn)(
+      sofficePath,
+      ["--headless", "--convert-to", CONVERT_TO_TARGET[kind], "--outdir", outDir, inputPath],
+      { windowsHide: true }
+    );
     const timer = window.setTimeout(() => {
       child.kill("SIGKILL");
       reject(new ConvertTimeoutError(`Conversion timed out after ${CONVERT_TIMEOUT_MS / 1e3}s.`));

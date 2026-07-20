@@ -55,11 +55,28 @@ export async function convertToPdf(
   return outputPath;
 }
 
+// Excel sheets otherwise export using each sheet's print setup, which
+// defaults to tiling the sheet across however many portrait 8.5x11 pages
+// its content needs — awkward to read since one sheet becomes many
+// disconnected pages. SinglePageSheets (LibreOffice 24.8+) instead sizes
+// each sheet's single PDF page to fit all of that sheet's content, so one
+// sheet tab always maps to exactly one page. Verified against a real
+// wide/tall workbook: 9 tiled pages -> 2 whole-sheet pages, with the
+// per-sheet outline/bookmarks (which sheet-tab navigation relies on)
+// still intact and pointing at the right page.
+const CONVERT_TO_TARGET: Record<DocKind, string> = {
+  word: "pdf",
+  powerpoint: "pdf",
+  excel: 'pdf:calc_pdf_Export:{"SinglePageSheets":{"type":"boolean","value":"true"}}',
+};
+
 function runSoffice(sofficePath: string, inputPath: string, outDir: string, kind: DocKind): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(sofficePath, ["--headless", "--convert-to", "pdf", "--outdir", outDir, inputPath], {
-      windowsHide: true,
-    });
+    const child = spawn(
+      sofficePath,
+      ["--headless", "--convert-to", CONVERT_TO_TARGET[kind], "--outdir", outDir, inputPath],
+      { windowsHide: true }
+    );
 
     const timer = window.setTimeout(() => {
       child.kill("SIGKILL");

@@ -1,6 +1,6 @@
 {
   "name": "doc-preview",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "description": "Preview PowerPoint, Word, and Excel files. Automatically refreshes when you, Claude, or another AI agent changes the file, so your preview is always up to date. Renders via a local LibreOffice install.",
   "main": "main.js",
   "scripts": {

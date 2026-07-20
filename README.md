@@ -47,6 +47,7 @@ Renders locally via a headless [LibreOffice](https://www.libreoffice.org/) insta
 - Each conversion spins up a fresh LibreOffice process (~15–20s). There's no persistent/warm LibreOffice listener yet, so refreshes aren't instant.
 - The "jump to changed page" heuristic compares extracted text per page, not pixels — a purely visual edit with no text change (e.g. only a fill color) won't be detected. It also won't guess if the total page count changed (inserted/deleted slides shift every later page's position), and just leaves the view where it was in that case.
 - Sheet tabs rely on LibreOffice's PDF export including a bookmark/outline entry per sheet, which it does by default. If a given workbook's export somehow lacks one, the file still previews fine — it just falls back to a plain page list with no sheet tabs.
+- Each sheet is exported as a single whole-sheet page (via LibreOffice's `SinglePageSheets` option) rather than tiled across print-sized pages, so a large sheet becomes one large page — you may need to zoom in to read a very dense sheet clearly. This option needs a reasonably recent LibreOffice (24.8+); older installs will silently fall back to the normal tiled/paginated export instead.
 - The auto-installer's Windows (MSI, custom `INSTALLLOCATION`) and Linux (`dpkg-deb -x` extraction, no dependency resolution) paths are implemented per documented conventions but are less battle-tested than the macOS path.
 
 ## License
