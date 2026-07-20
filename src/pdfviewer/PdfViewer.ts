@@ -27,6 +27,12 @@ const MIN_SCALE = 0.25;
 const MAX_SCALE = 4;
 const INDICATOR_HIDE_DELAY_MS = 1500;
 
+interface OutlineEntry {
+  title: string;
+  /** 1-indexed. */
+  startPage: number;
+}
+
 interface SaveDialogAPI {
   showSaveDialogSync(options: { defaultPath?: string; filters?: { name: string; extensions: string[] }[] }): string | undefined;
 }
@@ -67,6 +73,12 @@ export class PdfViewer {
   private root: HTMLElement;
   private thumbRail: HTMLElement;
   private mainCol: HTMLElement;
+  private sheetTabsBar: HTMLElement;
+  /** Excel workbooks convert with a real PDF outline (one bookmark per
+   *  sheet) — pptx/docx don't have one, so this stays null for those and
+   *  the tab strip never shows. Not tied to file extension at all; whatever
+   *  the PDF actually contains decides it. */
+  private sheetOutline: OutlineEntry[] | null = null;
   private canvasOuter: HTMLElement;
   private canvasWrap: HTMLElement;
   private pageContainer: HTMLElement;
@@ -134,6 +146,10 @@ export class PdfViewer {
     // Must be non-passive to preventDefault() the browser's own page-zoom.
     this.canvasWrap.addEventListener("wheel", (e) => this.onWheel(e), { passive: false });
 
+    // Excel-style sheet tabs — hidden by default, shown only when the
+    // loaded document actually has an outline (see renderSheetTabs()).
+    this.sheetTabsBar = this.mainCol.createDiv({ cls: "pdfviewer-sheet-tabs" });
+
     this.resizeObserver = new ResizeObserver(() => {
       if (this.fitToPage) void this.renderCurrentPage();
     });
@@ -152,6 +168,8 @@ export class PdfViewer {
     this.doc = newDoc;
     this.pageSignatures = newSignatures;
     this.totalPages = newDoc.numPages;
+    this.sheetOutline = await this.loadOutline(newDoc);
+    this.renderSheetTabs();
     void previousDoc?.destroy();
 
     if (changedPage !== null) {
@@ -199,6 +217,60 @@ export class PdfViewer {
       if (oldSignatures[i] !== newSignatures[i]) return i + 1;
     }
     return null;
+  }
+
+  /** Reads the PDF's outline (bookmarks) and resolves each entry to its
+   *  starting page. Excel workbooks get one entry per sheet from
+   *  LibreOffice's default PDF export — no special export options needed,
+   *  confirmed against a real multi-sheet file. pptx/docx don't have an
+   *  outline at all, so this naturally returns null for those without
+   *  needing to know what kind of file it came from. */
+  private async loadOutline(doc: PDFDocumentProxy): Promise<OutlineEntry[] | null> {
+    try {
+      const outline = await doc.getOutline();
+      if (!outline || outline.length === 0) return null;
+
+      const entries: OutlineEntry[] = [];
+      for (const item of outline) {
+        const dest: Array<{ num: number; gen: number }> | null =
+          typeof item.dest === "string" ? await doc.getDestination(item.dest) : item.dest;
+        if (!dest || !dest[0]) continue;
+        const pageIndex = await doc.getPageIndex(dest[0]);
+        entries.push({ title: item.title, startPage: pageIndex + 1 });
+      }
+      return entries.length > 0 ? entries : null;
+    } catch (e) {
+      console.warn("Doc Preview: couldn't read PDF outline (sheet tabs unavailable for this file).", e);
+      return null;
+    }
+  }
+
+  private renderSheetTabs(): void {
+    this.sheetTabsBar.empty();
+    this.sheetTabsBar.toggleClass("is-visible", this.sheetOutline !== null);
+    if (!this.sheetOutline) return;
+
+    for (const entry of this.sheetOutline) {
+      const tab = this.sheetTabsBar.createDiv({ cls: "pdfviewer-sheet-tab", text: entry.title });
+      tab.addEventListener("click", () => this.goToPage(entry.startPage));
+    }
+    this.updateActiveSheetTab();
+  }
+
+  private updateActiveSheetTab(): void {
+    if (!this.sheetOutline) return;
+    const activeIndex = this.sheetIndexForPage(this.currentPage);
+    Array.from(this.sheetTabsBar.children).forEach((el, i) => el.toggleClass("is-active", i === activeIndex));
+  }
+
+  /** Which outline entry's range the given page falls into. */
+  private sheetIndexForPage(pageNum: number): number {
+    let index = 0;
+    if (!this.sheetOutline) return index;
+    for (let i = 0; i < this.sheetOutline.length; i++) {
+      if (this.sheetOutline[i].startPage <= pageNum) index = i;
+    }
+    return index;
   }
 
   destroy(): void {
@@ -359,8 +431,10 @@ export class PdfViewer {
 
     this.zoomLabel.setText(`${Math.round(this.scale * 100)}%`);
     this.showIndicator();
-    this.indicator.setText(`${this.currentPage} / ${this.totalPages}`);
+    const sheetPrefix = this.sheetOutline ? `${this.sheetOutline[this.sheetIndexForPage(this.currentPage)].title} · ` : "";
+    this.indicator.setText(`${sheetPrefix}${this.currentPage} / ${this.totalPages}`);
     this.updateActiveThumbnail();
+    this.updateActiveSheetTab();
   }
 
   private computeFitScale(page: PDFPageProxy): number {

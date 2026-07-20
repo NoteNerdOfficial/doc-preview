@@ -62,7 +62,7 @@ export class DocPreviewView extends FileView {
   }
 
   canAcceptExtension(extension: string): boolean {
-    return extension === "pptx" || extension === "docx";
+    return extension === "pptx" || extension === "docx" || extension === "xlsx";
   }
 
   override async onOpen(): Promise<void> {
@@ -140,7 +140,9 @@ export class DocPreviewView extends FileView {
   }
 
   private kindFor(file: TFile): DocKind {
-    return file.extension === "docx" ? "word" : "powerpoint";
+    if (file.extension === "docx") return "word";
+    if (file.extension === "xlsx") return "excel";
+    return "powerpoint";
   }
 
   private cacheDir(): string {

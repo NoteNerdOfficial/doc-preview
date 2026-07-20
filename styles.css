@@ -257,3 +257,37 @@
 .pdfviewer-page-indicator.is-visible {
   opacity: 1;
 }
+
+/* Excel-style sheet tabs — Excel's own bottom-tab-strip convention. Hidden
+   by default; only shown when the loaded PDF actually has an outline. */
+.pdfviewer-sheet-tabs {
+  display: none;
+  flex-shrink: 0;
+  gap: 0.25rem;
+  padding: 0.35rem 0.5rem;
+  border-top: 1px solid var(--background-modifier-border);
+  overflow-x: auto;
+}
+
+.pdfviewer-sheet-tabs.is-visible {
+  display: flex;
+}
+
+.pdfviewer-sheet-tab {
+  padding: 0.25rem 0.75rem;
+  border-radius: 4px;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.pdfviewer-sheet-tab:hover {
+  background: var(--background-modifier-hover);
+}
+
+.pdfviewer-sheet-tab.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}

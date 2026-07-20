@@ -1476,8 +1476,17 @@ var ConvertTimeoutError = class extends ConvertError {
 };
 var EXPECTED_FILTER_PREFIX = {
   word: "writer_",
-  powerpoint: "impress_"
+  powerpoint: "impress_",
+  excel: "calc_"
 };
+var KIND_DESCRIPTION = {
+  word: "Word document",
+  powerpoint: "PowerPoint presentation",
+  excel: "Excel workbook"
+};
+function describeKind(kind) {
+  return KIND_DESCRIPTION[kind];
+}
 async function convertToPdf(sofficePath, inputPath, cacheDir, kind) {
   fs3.mkdirSync(cacheDir, { recursive: true });
   const jobDir = path4.join(cacheDir, crypto2.randomUUID());
@@ -1515,7 +1524,7 @@ function runSoffice(sofficePath, inputPath, outDir, kind) {
       if (usedFilter && !usedFilter.startsWith(EXPECTED_FILTER_PREFIX[kind])) {
         reject(
           new ConvertError(
-            `soffice used filter "${usedFilter}", not a ${kind} filter \u2014 this file likely isn't a valid ${kind === "word" ? "Word document" : "PowerPoint presentation"}.`
+            `soffice used filter "${usedFilter}", not a ${kind} filter \u2014 this file likely isn't a valid ${describeKind(kind)}.`
           )
         );
         return;
@@ -22708,6 +22717,11 @@ var PdfViewer = class {
     this.rotation = 0;
     this.renderToken = 0;
     this.activeRenderTask = null;
+    /** Excel workbooks convert with a real PDF outline (one bookmark per
+     *  sheet) — pptx/docx don't have one, so this stays null for those and
+     *  the tab strip never shows. Not tied to file extension at all; whatever
+     *  the PDF actually contains decides it. */
+    this.sheetOutline = null;
     this.activeTextLayer = null;
     this.thumbnailsBuilt = false;
     this.thumbnailsVisible = false;
@@ -22746,6 +22760,7 @@ var PdfViewer = class {
     window.addEventListener("mousemove", this.boundOnMouseMove);
     window.addEventListener("mouseup", this.boundOnMouseUp);
     this.canvasWrap.addEventListener("wheel", (e) => this.onWheel(e), { passive: false });
+    this.sheetTabsBar = this.mainCol.createDiv({ cls: "pdfviewer-sheet-tabs" });
     this.resizeObserver = new ResizeObserver(() => {
       if (this.fitToPage)
         void this.renderCurrentPage();
@@ -22763,6 +22778,8 @@ var PdfViewer = class {
     this.doc = newDoc;
     this.pageSignatures = newSignatures;
     this.totalPages = newDoc.numPages;
+    this.sheetOutline = await this.loadOutline(newDoc);
+    this.renderSheetTabs();
     void (previousDoc == null ? void 0 : previousDoc.destroy());
     if (changedPage !== null) {
       this.currentPage = changedPage;
@@ -22808,6 +22825,59 @@ var PdfViewer = class {
         return i + 1;
     }
     return null;
+  }
+  /** Reads the PDF's outline (bookmarks) and resolves each entry to its
+   *  starting page. Excel workbooks get one entry per sheet from
+   *  LibreOffice's default PDF export — no special export options needed,
+   *  confirmed against a real multi-sheet file. pptx/docx don't have an
+   *  outline at all, so this naturally returns null for those without
+   *  needing to know what kind of file it came from. */
+  async loadOutline(doc) {
+    try {
+      const outline = await doc.getOutline();
+      if (!outline || outline.length === 0)
+        return null;
+      const entries = [];
+      for (const item of outline) {
+        const dest = typeof item.dest === "string" ? await doc.getDestination(item.dest) : item.dest;
+        if (!dest || !dest[0])
+          continue;
+        const pageIndex = await doc.getPageIndex(dest[0]);
+        entries.push({ title: item.title, startPage: pageIndex + 1 });
+      }
+      return entries.length > 0 ? entries : null;
+    } catch (e) {
+      console.warn("Doc Preview: couldn't read PDF outline (sheet tabs unavailable for this file).", e);
+      return null;
+    }
+  }
+  renderSheetTabs() {
+    this.sheetTabsBar.empty();
+    this.sheetTabsBar.toggleClass("is-visible", this.sheetOutline !== null);
+    if (!this.sheetOutline)
+      return;
+    for (const entry of this.sheetOutline) {
+      const tab = this.sheetTabsBar.createDiv({ cls: "pdfviewer-sheet-tab", text: entry.title });
+      tab.addEventListener("click", () => this.goToPage(entry.startPage));
+    }
+    this.updateActiveSheetTab();
+  }
+  updateActiveSheetTab() {
+    if (!this.sheetOutline)
+      return;
+    const activeIndex = this.sheetIndexForPage(this.currentPage);
+    Array.from(this.sheetTabsBar.children).forEach((el, i) => el.toggleClass("is-active", i === activeIndex));
+  }
+  /** Which outline entry's range the given page falls into. */
+  sheetIndexForPage(pageNum) {
+    let index = 0;
+    if (!this.sheetOutline)
+      return index;
+    for (let i = 0; i < this.sheetOutline.length; i++) {
+      if (this.sheetOutline[i].startPage <= pageNum)
+        index = i;
+    }
+    return index;
   }
   destroy() {
     var _a2, _b, _c;
@@ -22946,8 +23016,10 @@ var PdfViewer = class {
       return;
     this.zoomLabel.setText(`${Math.round(this.scale * 100)}%`);
     this.showIndicator();
-    this.indicator.setText(`${this.currentPage} / ${this.totalPages}`);
+    const sheetPrefix = this.sheetOutline ? `${this.sheetOutline[this.sheetIndexForPage(this.currentPage)].title} \xB7 ` : "";
+    this.indicator.setText(`${sheetPrefix}${this.currentPage} / ${this.totalPages}`);
     this.updateActiveThumbnail();
+    this.updateActiveSheetTab();
   }
   computeFitScale(page) {
     const unscaled = page.getViewport({ scale: 1, rotation: this.rotation });
@@ -23100,7 +23172,7 @@ var DocPreviewView = class extends import_obsidian3.FileView {
     return "file-text";
   }
   canAcceptExtension(extension) {
-    return extension === "pptx" || extension === "docx";
+    return extension === "pptx" || extension === "docx" || extension === "xlsx";
   }
   async onOpen() {
     this.addAction("refresh-cw", "Refresh preview", () => this.render());
@@ -23164,7 +23236,11 @@ var DocPreviewView = class extends import_obsidian3.FileView {
     }
   }
   kindFor(file) {
-    return file.extension === "docx" ? "word" : "powerpoint";
+    if (file.extension === "docx")
+      return "word";
+    if (file.extension === "xlsx")
+      return "excel";
+    return "powerpoint";
   }
   cacheDir() {
     const adapter = this.app.vault.adapter;
@@ -23297,7 +23373,7 @@ var DocPreviewView = class extends import_obsidian3.FileView {
 };
 
 // src/main.ts
-var HANDLED_EXTENSIONS = ["pptx", "docx"];
+var HANDLED_EXTENSIONS = ["pptx", "docx", "xlsx"];
 var DocPreviewPlugin = class extends import_obsidian4.Plugin {
   async onload() {
     await this.loadSettings();

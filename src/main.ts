@@ -4,7 +4,7 @@ import { DEFAULT_SETTINGS, DocPreviewSettings } from "./types";
 import { DocPreviewView, VIEW_TYPE_DOC_PREVIEW } from "./views/DocPreviewView";
 import { configurePdfWorker } from "./pdfviewer/PdfViewer";
 
-const HANDLED_EXTENSIONS = ["pptx", "docx"];
+const HANDLED_EXTENSIONS = ["pptx", "docx", "xlsx"];
 
 export default class DocPreviewPlugin extends Plugin {
   settings: DocPreviewSettings;

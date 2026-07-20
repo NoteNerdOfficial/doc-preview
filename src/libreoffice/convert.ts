@@ -8,12 +8,23 @@ const CONVERT_TIMEOUT_MS = 60000;
 export class ConvertError extends Error {}
 export class ConvertTimeoutError extends ConvertError {}
 
-export type DocKind = "word" | "powerpoint";
+export type DocKind = "word" | "powerpoint" | "excel";
 
 const EXPECTED_FILTER_PREFIX: Record<DocKind, string> = {
   word: "writer_",
   powerpoint: "impress_",
+  excel: "calc_",
 };
+
+const KIND_DESCRIPTION: Record<DocKind, string> = {
+  word: "Word document",
+  powerpoint: "PowerPoint presentation",
+  excel: "Excel workbook",
+};
+
+function describeKind(kind: DocKind): string {
+  return KIND_DESCRIPTION[kind];
+}
 
 /**
  * Converts a single file to PDF via `soffice --headless --convert-to pdf`.
@@ -75,9 +86,7 @@ function runSoffice(sofficePath: string, inputPath: string, outDir: string, kind
       if (usedFilter && !usedFilter.startsWith(EXPECTED_FILTER_PREFIX[kind])) {
         reject(
           new ConvertError(
-            `soffice used filter "${usedFilter}", not a ${kind} filter — this file likely isn't a valid ${
-              kind === "word" ? "Word document" : "PowerPoint presentation"
-            }.`
+            `soffice used filter "${usedFilter}", not a ${kind} filter — this file likely isn't a valid ${describeKind(kind)}.`
           )
         );
         return;
