@@ -1,5 +1,5 @@
 import * as fs from "fs";
-import JSZip from "jszip";
+import { readZipEntryUtf8 } from "./miniZip";
 
 /**
  * Hidden Excel sheets still come out as pages in LibreOffice's headless PDF
@@ -10,12 +10,19 @@ import JSZip from "jszip";
  * visibility straight from the workbook's own XML (name/state live in
  * xl/workbook.xml, per the OOXML spec) so the viewer can filter those pages
  * back out itself.
+ *
+ * Uses a small hand-rolled zip reader (miniZip.ts) rather than a general
+ * zip library — a full library's IE-compatibility polyfills (dynamically
+ * created <script> elements as a legacy task-scheduling trick, present in
+ * both jszip's "lie" and "setimmediate" dependencies) got this plugin
+ * flagged by Obsidian's community-plugin review for "code obfuscation",
+ * even though neither ever sets `src` or executes anything — a review tool
+ * false positive that's simplest to avoid entirely rather than fight.
  */
 export async function getHiddenSheetNames(xlsxPath: string): Promise<Set<string>> {
   try {
     const data = fs.readFileSync(xlsxPath);
-    const zip = await JSZip.loadAsync(data);
-    const workbookXml = await zip.file("xl/workbook.xml")?.async("string");
+    const workbookXml = readZipEntryUtf8(data, "xl/workbook.xml");
     if (!workbookXml) return new Set();
 
     const hidden = new Set<string>();
