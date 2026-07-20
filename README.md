@@ -12,7 +12,7 @@ Renders locally via a headless [LibreOffice](https://www.libreoffice.org/) insta
 - Rendered headless via LibreOffice — no window ever flashes on screen
 - Auto-refreshes on external file changes (debounced, so a mid-write save doesn't get converted half-finished)
 - Jumps to the page/slide that actually changed on refresh, not just back to page 1
-- Excel workbooks get sheet tabs, pulled from the PDF's own outline, so you can jump straight to a sheet — the page indicator also shows which sheet you're currently viewing
+- Excel workbooks get sheet tabs, pulled from the PDF's own outline, so you can jump straight to a sheet — the page indicator also shows which sheet you're currently viewing. Sheets hidden in Excel stay hidden here too, matching what you'd actually see if you opened the file yourself
 - Custom PDF viewer: zoom in/out (including trackpad pinch-to-zoom), fit-to-page, rotate, space+drag panning when zoomed in, selectable/copyable text, a toggleable thumbnail rail, keyboard arrow-key navigation, and a download button
 - A fading page-number indicator (bottom-center), not a fixed toolbar element
 - Settings can install LibreOffice for you, to a folder of your choosing — it doesn't have to go into `Applications` / `Program Files`
@@ -48,6 +48,7 @@ Renders locally via a headless [LibreOffice](https://www.libreoffice.org/) insta
 - The "jump to changed page" heuristic compares extracted text per page, not pixels — a purely visual edit with no text change (e.g. only a fill color) won't be detected. It also won't guess if the total page count changed (inserted/deleted slides shift every later page's position), and just leaves the view where it was in that case.
 - Sheet tabs rely on LibreOffice's PDF export including a bookmark/outline entry per sheet, which it does by default. If a given workbook's export somehow lacks one, the file still previews fine — it just falls back to a plain page list with no sheet tabs.
 - Each sheet is exported as a single whole-sheet page (via LibreOffice's `SinglePageSheets` option) rather than tiled across print-sized pages, so a large sheet becomes one large page — you may need to zoom in to read a very dense sheet clearly. This option needs a reasonably recent LibreOffice (24.8+); older installs will silently fall back to the normal tiled/paginated export instead.
+- LibreOffice's headless PDF export includes hidden sheets even though its own GUI export doesn't — a known discrepancy, not something this plugin can fix on LibreOffice's side. Worked around by reading sheet visibility straight out of the `.xlsx`'s own XML and filtering those pages back out, so they never reach the tab bar or page count.
 - The auto-installer's Windows (MSI, custom `INSTALLLOCATION`) and Linux (`dpkg-deb -x` extraction, no dependency resolution) paths are implemented per documented conventions but are less battle-tested than the macOS path.
 
 ## License

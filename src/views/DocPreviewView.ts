@@ -4,6 +4,7 @@ import * as path from "path";
 import type DocPreviewPlugin from "../main";
 import { detectLibreOffice } from "../libreoffice/detect";
 import { convertToPdf, DocKind } from "../libreoffice/convert";
+import { getHiddenSheetNames } from "../libreoffice/xlsxSheets";
 import { PdfViewer } from "../pdfviewer/PdfViewer";
 
 export const VIEW_TYPE_DOC_PREVIEW = "doc-preview-view";
@@ -193,7 +194,12 @@ export class DocPreviewView extends FileView {
     try {
       const adapter = this.app.vault.adapter as FileSystemAdapter;
       const absoluteInputPath = adapter.getFullPath(this.file.path);
-      const pdfPath = await convertToPdf(detection.sofficePath, absoluteInputPath, this.cacheDir(), kind);
+      // Independent of the conversion itself (reads the source xlsx's own
+      // zip/XML directly) — run in parallel rather than after.
+      const [pdfPath, hiddenSheetNames] = await Promise.all([
+        convertToPdf(detection.sofficePath, absoluteInputPath, this.cacheDir(), kind),
+        kind === "excel" ? getHiddenSheetNames(absoluteInputPath) : Promise.resolve(undefined),
+      ]);
 
       // A slower/stale render finishing after a newer one started would
       // otherwise clobber it — only the latest render token may paint.
@@ -203,7 +209,7 @@ export class DocPreviewView extends FileView {
       this.lastJobDir = path.dirname(pdfPath);
       this.lastUpdatedAt = Date.now();
       this.headerErrorNote = null;
-      await this.renderPdf(body, pdfPath);
+      await this.renderPdf(body, pdfPath, hiddenSheetNames);
       this.updateHeaderStatus();
     } catch (e) {
       if (token !== this.renderToken) return;
@@ -279,7 +285,7 @@ export class DocPreviewView extends FileView {
     });
   }
 
-  private async renderPdf(body: HTMLElement, pdfPath: string): Promise<void> {
+  private async renderPdf(body: HTMLElement, pdfPath: string, hiddenSheetNames?: Set<string>): Promise<void> {
     this.stopLoadingTimer();
     // Reused across refreshes (not recreated) so it can remember the
     // previous document's page signatures to jump to whatever changed, and
@@ -293,6 +299,6 @@ export class DocPreviewView extends FileView {
     // than loading it by URL — sidesteps the file:// restriction entirely
     // (confirmed earlier: "Not allowed to load local resource" when the
     // previous iframe-based approach tried to navigate to a file:// URL).
-    await this.pdfViewer.load(pdfPath);
+    await this.pdfViewer.load(pdfPath, hiddenSheetNames);
   }
 }

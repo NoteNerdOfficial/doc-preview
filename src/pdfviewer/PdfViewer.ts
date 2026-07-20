@@ -79,6 +79,14 @@ export class PdfViewer {
    *  the tab strip never shows. Not tied to file extension at all; whatever
    *  the PDF actually contains decides it. */
   private sheetOutline: OutlineEntry[] | null = null;
+  /** Physical (real PDF) page numbers that should actually be shown, in
+   *  order — everywhere else in this class, "page" means a 1-indexed
+   *  position in this array, not a raw PDF page number. Lets hidden Excel
+   *  sheets (still exported as real pages by LibreOffice's headless
+   *  --convert-to — see loadOutline's comment) be filtered out of
+   *  navigation/thumbnails/page-count entirely rather than just hidden from
+   *  the tab bar while still being reachable as orphan blank pages. */
+  private visiblePages: number[] = [];
   private canvasOuter: HTMLElement;
   private canvasWrap: HTMLElement;
   private pageContainer: HTMLElement;
@@ -156,19 +164,26 @@ export class PdfViewer {
     this.resizeObserver.observe(this.canvasWrap);
   }
 
-  /** Loads (or reloads, for the same instance, on refresh) a PDF. */
-  async load(pdfPath: string): Promise<void> {
+  /** Loads (or reloads, for the same instance, on refresh) a PDF.
+   *  hiddenSheetNames (Excel only) filters those sheets' pages out of
+   *  navigation entirely — see loadOutline's and visiblePages' comments. */
+  async load(pdfPath: string, hiddenSheetNames?: Set<string>): Promise<void> {
     this.sourcePdfPath = pdfPath;
     const data = fs.readFileSync(pdfPath);
     const newDoc = await pdfjsLib.getDocument({ data: new Uint8Array(data) }).promise;
-    const newSignatures = await this.computePageSignatures(newDoc);
+
+    const rawOutline = await this.loadOutline(newDoc);
+    const { visiblePages, sheetOutline } = this.buildVisiblePages(newDoc.numPages, rawOutline, hiddenSheetNames);
+
+    const newSignatures = await this.computePageSignatures(newDoc, visiblePages);
     const changedPage = this.findChangedPage(this.pageSignatures, newSignatures);
 
     const previousDoc = this.doc;
     this.doc = newDoc;
     this.pageSignatures = newSignatures;
-    this.totalPages = newDoc.numPages;
-    this.sheetOutline = await this.loadOutline(newDoc);
+    this.visiblePages = visiblePages;
+    this.totalPages = visiblePages.length;
+    this.sheetOutline = sheetOutline;
     this.renderSheetTabs();
     void previousDoc?.destroy();
 
@@ -193,10 +208,10 @@ export class PdfViewer {
    *  fill color changed) — a deliberate cost/accuracy tradeoff, since
    *  rasterizing every page on every refresh to check would add real
    *  latency on top of the LibreOffice conversion step. */
-  private async computePageSignatures(doc: PDFDocumentProxy): Promise<string[]> {
+  private async computePageSignatures(doc: PDFDocumentProxy, visiblePages: number[]): Promise<string[]> {
     const signatures: string[] = [];
-    for (let i = 1; i <= doc.numPages; i++) {
-      const page = await doc.getPage(i);
+    for (const physicalPage of visiblePages) {
+      const page = await doc.getPage(physicalPage);
       const textContent = await page.getTextContent();
       signatures.push(textContent.items.map((item) => ("str" in item ? item.str : "")).join(""));
     }
@@ -243,6 +258,54 @@ export class PdfViewer {
       console.warn("Doc Preview: couldn't read PDF outline (sheet tabs unavailable for this file).", e);
       return null;
     }
+  }
+
+  /** Builds the physical-page allowlist and remaps the outline onto it.
+   *  Every physical page is attributed to whichever outline entry "owns" it
+   *  (same lookup as sheetIndexForPage, just against raw/physical pages);
+   *  pages owned by a hidden sheet are dropped. Fails open — no outline, no
+   *  hidden names, or every page ending up hidden (e.g. a title-matching
+   *  mismatch) all fall back to showing every page unfiltered, since showing
+   *  extra content beats silently showing nothing. */
+  private buildVisiblePages(
+    numPages: number,
+    rawOutline: OutlineEntry[] | null,
+    hiddenSheetNames?: Set<string>
+  ): { visiblePages: number[]; sheetOutline: OutlineEntry[] | null } {
+    const allPages = Array.from({ length: numPages }, (_, i) => i + 1);
+    if (!rawOutline || !hiddenSheetNames || hiddenSheetNames.size === 0) {
+      return { visiblePages: allPages, sheetOutline: rawOutline };
+    }
+
+    const visiblePages = allPages.filter((physicalPage) => {
+      const owner = this.ownerEntry(rawOutline, physicalPage);
+      return !owner || !hiddenSheetNames.has(owner.title);
+    });
+    if (visiblePages.length === 0) {
+      return { visiblePages: allPages, sheetOutline: rawOutline };
+    }
+
+    const sheetOutline: OutlineEntry[] = [];
+    for (const entry of rawOutline) {
+      if (hiddenSheetNames.has(entry.title)) continue;
+      const logicalPage = visiblePages.indexOf(entry.startPage) + 1;
+      if (logicalPage > 0) sheetOutline.push({ title: entry.title, startPage: logicalPage });
+    }
+    return { visiblePages, sheetOutline: sheetOutline.length > 0 ? sheetOutline : null };
+  }
+
+  /** Which outline entry's range a given (physical) page falls into. */
+  private ownerEntry(outline: OutlineEntry[], physicalPage: number): OutlineEntry | null {
+    let owner: OutlineEntry | null = null;
+    for (const entry of outline) {
+      if (entry.startPage <= physicalPage) owner = entry;
+    }
+    return owner;
+  }
+
+  /** Logical (displayed) page number -> real PDF page number. */
+  private physicalPage(logicalPage: number): number {
+    return this.visiblePages[logicalPage - 1] ?? logicalPage;
   }
 
   private renderSheetTabs(): void {
@@ -315,6 +378,10 @@ export class PdfViewer {
     btn.addEventListener("click", onClick);
   }
 
+  /** Copies the underlying PDF as-is — including any hidden-sheet pages
+   *  filtered out of the on-screen view by visiblePages. Rewriting the PDF
+   *  itself to drop those pages for the download too is more than this
+   *  needs right now. */
   private download(): void {
     const defaultName = "presentation.pdf";
     const target = pickSavePath(defaultName);
@@ -411,7 +478,7 @@ export class PdfViewer {
   private async renderCurrentPage(): Promise<void> {
     if (!this.doc) return;
     const token = ++this.renderToken;
-    const page = await this.doc.getPage(this.currentPage);
+    const page = await this.doc.getPage(this.physicalPage(this.currentPage));
 
     if (this.fitToPage) {
       this.scale = this.computeFitScale(page);
@@ -528,7 +595,7 @@ export class PdfViewer {
       item.createDiv({ cls: "pdfviewer-thumb-label", text: String(i) });
       item.addEventListener("click", () => this.goToPage(i));
 
-      const page = await this.doc.getPage(i);
+      const page = await this.doc.getPage(this.physicalPage(i));
       const unscaled = page.getViewport({ scale: 1 });
       const thumbScale = 120 / unscaled.width;
       await this.paint(page, canvas, page.getViewport({ scale: thumbScale, rotation: 0 }));
